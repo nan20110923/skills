@@ -1,0 +1,31 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate skills
+        run: npm run validate
+
+      - name: Smoke-test skill discovery
+        run: |
+          count=$(find skills -name SKILL.md -type f | wc -l | tr -d ' ')
+          if [ "$count" -eq 0 ]; then
+            echo "No skills yet. Skipping discovery smoke test."
+            exit 0
+          fi
+          npx --yes skills@1.7.4 add . --list

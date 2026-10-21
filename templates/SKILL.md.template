@@ -1,0 +1,30 @@
+---
+name: skill-name
+description: One sentence describing the outcome this skill produces. Use when the user asks for <trigger 1>, <trigger 2>, or <trigger 3>.
+---
+
+# Skill title
+
+One paragraph describing what the skill produces and what the user ends up with.
+
+## When to use
+
+- A concrete situation, including the phrase the user is likely to type.
+- A second situation where this skill is the right choice.
+- When not to use it, if another skill is a better fit.
+
+## Workflow
+
+1. First step, with the exact command or file path where relevant.
+2. Second step. Call out decision points and fallbacks.
+3. Verification step: how to tell the work is done.
+
+## Pitfalls
+
+- A mistake that is easy to make and how to avoid it.
+- A constraint that is not obvious.
+
+## Resources
+
+- `references/details.md` for background that does not belong in this file.
+- `scripts/check.sh` for the executable part.

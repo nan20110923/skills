@@ -1,0 +1,14 @@
+{
+  "name": "@nan20110923/skills",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal agent skills, installable with the skills CLI.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "validate": "node scripts/validate.mjs"
+  }
+}
