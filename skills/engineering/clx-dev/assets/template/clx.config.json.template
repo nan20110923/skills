@@ -1,0 +1,5 @@
+{
+  "rom": "{{ROM}}",
+  "spec": "{{SPEC}}",
+  "entry": "{{ENTRY}}"
+}

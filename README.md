@@ -3,12 +3,15 @@
 Personal agent skills, written in English and installable with the
 [`skills`](https://github.com/vercel-labs/skills) CLI.
 
-> **Status:** no skills published yet. This repository currently contains the
-> layout, authoring rules, and validation that every new skill must follow.
+## Skills
+
+| Skill | Description |
+| --- | --- |
+| [`clx-dev`](skills/engineering/clx-dev/SKILL.md) | Scaffold, build, run, and debug coloX cartridges for ColoPLAY and ColoPLAY V2. |
 
 ## Install
 
-Once skills are published, install them with:
+Install the skills with:
 
 ```bash
 # Every skill, every agent the CLI detects
@@ -19,7 +22,7 @@ npx skills add nan20110923/skills -a opencode
 npx skills add nan20110923/skills -a claude-code
 
 # A single skill
-npx skills add nan20110923/skills --skill <skill-name> -a opencode
+npx skills add nan20110923/skills --skill clx-dev -a opencode
 
 # See what the repository contains without installing
 npx skills add nan20110923/skills --list

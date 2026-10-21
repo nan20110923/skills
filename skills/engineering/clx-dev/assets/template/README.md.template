@@ -1,0 +1,31 @@
+# {{PROJECT}}
+
+A coloX cartridge for ColoPLAY hardware.
+
+- Entry: `{{ENTRY}}`
+- Spec: `{{SPEC}}`
+- ROM output: `dist/{{ROM}}.rom`
+- Source: `src/`
+- Assets: `assets/`
+- Project config: `clx.config.json`
+
+## Layout
+
+```text
+{{ENTRY}}          cartridge header + #include of the Lua entry module
+src/main.lua       lifecycle callbacks and game code
+assets/            images, audio, and data embedded with #blob / #png
+dist/              generated ROMs (gitignored)
+```
+
+## Build and run
+
+Use the `clx-dev` skill commands from your coding agent:
+
+- `build` creates `dist/{{ROM}}.rom`.
+- `run` starts the simulator and opens the debug channel on port 3563.
+- `debug` sends commands to the running cartridge.
+- `shot` captures the current frame and prints its pixel md5.
+- `stop` shuts the simulator down.
+
+The commands read `clx.config.json`; there is no need to pass the entry path.

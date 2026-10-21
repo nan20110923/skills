@@ -1,0 +1,19 @@
+{{SPEC}}
+version 1
+style:game
+name:{{ROM}}
+author:{{AUTHOR}}
+desc:
+
+__lua__
+#include src/main.lua
+
+__gfx__
+
+__gff__
+
+__map__
+
+__sfx__
+
+__music__

@@ -1,0 +1,4 @@
+dist/
+.clx-dev/
+*.clx.rom
+.DS_Store
