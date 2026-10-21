@@ -26,8 +26,13 @@ Silicon) and Windows. Linux is not supported.
 
 ## First run
 
-1. Run `doctor` to check the platform, Rosetta (macOS), tool, docs, examples,
-   and debug port.
+Decide the documentation language once, then pass the same `--lang` to every
+command below. Use `--lang zh` when the user works in Chinese, even if the
+machine locale is English.
+
+1. Run `doctor --refresh` on a fresh machine to check the platform, Rosetta
+   (macOS), tool, examples, and debug port. It downloads the tool and examples;
+   the docs bundle is downloaded by `init` for the chosen language.
 2. Run `init` to scaffold a project. Map the user's intent:
    - "create a new game/project" → `init <name>`
    - "work in this directory" → `init --here --rom <name>`
@@ -35,9 +40,16 @@ Silicon) and Windows. Linux is not supported.
 3. Run `build`, then `run`.
 
 Artifacts are downloaded once into `~/.cache/clx-dev` and reused. Override the
-location with `CLX_DEV_HOME`. `init` fetches the tool, examples, and docs.
-`--no-docs` skips the docs bundle; `--offline` skips all downloads and only
-warns about anything missing.
+location with `CLX_DEV_HOME`. Downloads use a proxy when one is configured:
+`CLX_PROXY` first, then `HTTPS_PROXY` / `ALL_PROXY` / `HTTP_PROXY`, then the
+macOS or Windows system proxy. `CLX_PROXY=none` forces a direct connection and
+`CLX_NO_PROXY` skips the proxy for matching hosts. `doctor` prints the proxy it
+would use and each download prints `via <proxy>` or `(direct)`. http(s) and
+socks5 proxies are supported.
+
+`init` fetches the tool, examples, and the docs bundle for the resolved
+language only. `--no-docs` skips the docs bundle; `--offline` skips all
+downloads and only warns about anything missing.
 
 The scaffold creates:
 
@@ -46,7 +58,7 @@ The scaffold creates:
 src/main.lua       lifecycle callbacks and game code
 assets/            images, audio, and data embedded with #blob / #png
 dist/              generated ROMs (gitignored)
-clx.config.json    rom, spec, entry
+clx.config.json    rom, spec, entry, docs lang
 README.md
 .gitignore
 ```
@@ -92,9 +104,11 @@ See `references/debug-protocol.md` for the full command list.
 `docs` prints the cached index. `docs <query>` searches the cached Markdown and
 prints `file:line` matches.
 
-Language resolution: `--lang` > `CLX_DOCS_LANG` > `LC_ALL` / `LANG`
-(`zh*` → `zh-CN`, everything else → `en`). Pass `--lang zh` when the user works
-in Chinese, even if the machine locale is English.
+Language resolution: `--lang` > `CLX_DOCS_LANG` > the project's
+`clx.config.json` (`lang`) > `LC_ALL` / `LANG` (`zh*` → `zh-CN`, everything
+else → `en`). `init` records the chosen language, so later `docs` and `doctor`
+runs inside the project keep using it. Pass `--lang zh` when the user works in
+Chinese, even if the machine locale is English.
 
 ## API reference
 
@@ -104,7 +118,14 @@ game code, then use `docs <query>` for the full official text.
 
 ## Troubleshooting
 
-- `doctor` reports a missing tool or docs: run `doctor --refresh`.
+- `doctor` reports a missing tool or examples: run `doctor --refresh`.
+- Downloads are slow or stall: read the `proxy:` line from `doctor`. If it says
+  `none`, set `CLX_PROXY` to the proxy URL the user already runs (scheme, host,
+  and port, as shown in their proxy app) and retry; a direct connection to the
+  CDN is often far slower.
+- `doctor` shows docs for another language than the user wants: pass
+  `--lang zh` or `--lang en`; each language is a separate bundle, cached on
+  first use.
 - macOS on Apple Silicon needs Rosetta for the Intel build; `doctor` checks it.
 - `port 3563 is already in use`: run `stop`, or close the other simulator.
 - `-d` issues: never call `coloXtool` directly; the wrapper always appends the

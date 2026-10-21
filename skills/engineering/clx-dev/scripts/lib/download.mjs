@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
+import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import process from "node:process";
 import {
@@ -16,8 +16,10 @@ import {
   sha256File,
   writeJson,
 } from "./common.mjs";
+import { httpRequest, proxyFor } from "./proxy.mjs";
 
 const USER_AGENT = "clx-dev/0.1 (+https://github.com/nan20110923/skills)";
+const MEGABYTE = 1024 * 1024;
 
 export function manifestPath() {
   return path.join(cacheRoot(), "manifest.json");
@@ -61,25 +63,54 @@ export async function installedArtifact(key) {
   }
 }
 
+function reportProgress(received, started, total) {
+  const seconds = Math.max((Date.now() - started) / 1000, 0.001);
+  const amount = (value) => (value / MEGABYTE).toFixed(1);
+  const size = total ? `${amount(received)}/${amount(total)} MB` : `${amount(received)} MB`;
+  process.stderr.write(`\r  ${size}  ${amount(received / seconds)} MB/s   `);
+}
+
 async function downloadTo(url, dest) {
-  const response = await fetch(url, {
+  const response = await httpRequest(url, {
     headers: { "user-agent": USER_AGENT },
-    redirect: "follow",
-    signal: AbortSignal.timeout(600000),
+    timeoutMs: 120000,
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-  if (!response.body) throw new Error(`empty response for ${url}`);
+  if (!response.ok) {
+    response.stream.resume();
+    throw new Error(`HTTP ${response.status} for ${url}`);
+  }
+  if (!response.stream) throw new Error(`empty response for ${url}`);
 
   await ensureDir(path.dirname(dest));
   const partial = `${dest}.part`;
   await rm(partial, { force: true });
+  let drawn = false;
   try {
-    await pipeline(Readable.fromWeb(response.body), createWriteStream(partial));
+    const total = Number(response.headers.get("content-length")) || 0;
+    const started = Date.now();
+    let received = 0;
+    let lastDrawn = 0;
+
+    const meter = new Transform({
+      transform(chunk, _encoding, callback) {
+        received += chunk.length;
+        if (process.stderr.isTTY && Date.now() - lastDrawn >= 200) {
+          lastDrawn = Date.now();
+          drawn = true;
+          reportProgress(received, started, total);
+        }
+        callback(null, chunk);
+      },
+    });
+
+    await pipeline(response.stream, meter, createWriteStream(partial));
     await rm(dest, { force: true });
     await rename(partial, dest);
   } catch (err) {
     await rm(partial, { force: true });
     throw err;
+  } finally {
+    if (drawn) process.stderr.write(`\r${" ".repeat(48)}\r`);
   }
 
   return {
@@ -91,12 +122,12 @@ async function downloadTo(url, dest) {
 
 async function head(url) {
   try {
-    const response = await fetch(url, {
+    const response = await httpRequest(url, {
       method: "HEAD",
       headers: { "user-agent": USER_AGENT },
-      redirect: "follow",
-      signal: AbortSignal.timeout(30000),
+      timeoutMs: 30000,
     });
+    response.stream.resume();
     if (!response.ok) return null;
     return {
       etag: response.headers.get("etag"),
@@ -137,8 +168,20 @@ async function install(key, { silent = false } = {}) {
   const dest = artifactPath(key);
   const temp = `${dest}.tmp-${process.pid}`;
 
-  if (!silent) console.log(`downloading ${spec.url}`);
-  const meta = await downloadTo(spec.url, zip);
+  const proxy = proxyFor(spec.url);
+  if (!silent) {
+    console.log(`downloading ${spec.url}${proxy ? ` via ${proxy.url} (${proxy.source})` : " (direct)"}`);
+  }
+
+  let meta;
+  try {
+    meta = await downloadTo(spec.url, zip);
+  } catch (err) {
+    const hint = proxy
+      ? ""
+      : `; no proxy is in use, so set CLX_PROXY=http://127.0.0.1:7890 if the CDN is slow`;
+    throw new Error(`cannot download ${key}: ${err.message}${hint}`);
+  }
   const digest = await sha256File(zip);
 
   try {

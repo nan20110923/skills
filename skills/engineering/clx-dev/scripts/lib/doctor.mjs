@@ -11,11 +11,14 @@ import {
   toolArtifactKey,
 } from "./common.mjs";
 import {
+  artifactPath,
   artifactSize,
   ensureArtifact,
   installedArtifact,
   loadManifest,
 } from "./download.mjs";
+import { proxyFor } from "./proxy.mjs";
+import { projectDocsLang } from "./project.mjs";
 
 function rosettaStatus() {
   if (!IS_MAC || process.arch !== "arm64") return null;
@@ -25,8 +28,15 @@ function rosettaStatus() {
 
 export async function doctor(flags) {
   const toolKey = toolArtifactKey();
-  const lang = resolveDocsLang(flags.lang);
-  const keys = toolKey ? [toolKey, "examples", `docs:${lang}`] : ["examples", `docs:${lang}`];
+  const lang = resolveDocsLang(flags.lang, await projectDocsLang());
+  const docsKey = `docs:${lang}`;
+  const required = toolKey ? [toolKey, "examples"] : ["examples"];
+
+  // A docs bundle is per language and only needed once the user works in that
+  // language, so "doctor --refresh" must not pre-download one from the locale.
+  const docsInstalled = await installedArtifact(docsKey);
+  const docsCached = Boolean(docsInstalled);
+  const keys = docsCached || flags.lang ? [...required, docsKey] : required;
   const artifacts = {};
   let missing = 0;
 
@@ -51,15 +61,23 @@ export async function doctor(flags) {
       etag: entry?.etag || null,
       error: refreshError,
     };
-    if (!installed) missing += 1;
+    if (!installed && required.includes(key)) missing += 1;
   }
 
+  const proxy = proxyFor(ARTIFACTS[toolKey || "examples"].url);
   const result = {
     platform: process.platform,
     arch: process.arch,
     node: process.version,
     cache: cacheRoot(),
     docsLang: lang,
+    docs: {
+      lang,
+      key: docsKey,
+      cached: docsCached,
+      path: docsCached ? artifactPath(docsKey) : null,
+    },
+    proxy: proxy ? { url: proxy.url, source: proxy.source } : null,
     artifacts,
     rosetta: rosettaStatus(),
     debugPort: DEBUG_PORT,
@@ -72,7 +90,8 @@ export async function doctor(flags) {
   console.log(`platform: ${result.platform} ${result.arch}`);
   console.log(`node:     ${result.node}`);
   console.log(`cache:    ${result.cache}`);
-  console.log(`docs:     ${result.docsLang}`);
+  console.log(`proxy:    ${proxy ? `${proxy.url} (${proxy.source})` : "none, downloading directly"}`);
+  console.log(`docs:     ${lang} ${docsCached ? "cached" : "not cached, init and docs download it on first use"}`);
   console.log("");
   for (const [key, value] of Object.entries(artifacts)) {
     const status = value.installed ? "ok" : "missing";

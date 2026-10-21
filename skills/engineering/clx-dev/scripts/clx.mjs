@@ -66,6 +66,12 @@ shot options:
   --out <file>           Screenshot path (default: .clx-dev/shot-<time>.bmp)
   --expect <md5>         Exit non-zero when the pixel md5 differs
 
+Environment:
+  CLX_DEV_HOME           Cache directory (default: ~/.cache/clx-dev)
+  CLX_PROXY              Proxy URL; "none" forces a direct connection
+  CLX_NO_PROXY           Hosts that bypass the proxy
+  CLX_DOCS_LANG          Default documentation language
+
 Examples:
   node scripts/clx.mjs init mygame
   node scripts/clx.mjs init --here --rom mygame

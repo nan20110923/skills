@@ -7,6 +7,7 @@ import {
   SKILL_ROOT,
   assertSafeRomName,
   ensureDir,
+  normalizeDocsLang,
   pathExists,
   resolveDocsLang,
   runCommand,
@@ -35,6 +36,16 @@ export async function resolveProjectRoot(flags = {}) {
     return root;
   }
   return findProjectRoot(process.cwd());
+}
+
+export async function projectDocsLang() {
+  try {
+    const root = await findProjectRoot(process.cwd());
+    const config = JSON.parse(await readFile(path.join(root, "clx.config.json"), "utf8"));
+    return normalizeDocsLang(config.lang);
+  } catch {
+    return null;
+  }
 }
 
 export async function loadProject(root) {
@@ -136,6 +147,7 @@ export async function initProject(positionals, flags) {
   let entry = `${rom}.clx`;
 
   const configFile = path.join(target, "clx.config.json");
+  let configLang = null;
   if (flags.merge && (await pathExists(configFile))) {
     let config;
     try {
@@ -152,6 +164,7 @@ export async function initProject(positionals, flags) {
     rom = config.rom;
     spec = String(config.spec || DEFAULT_SPEC);
     entry = String(config.entry || `${rom}.clx`);
+    configLang = normalizeDocsLang(config.lang);
   }
 
   assertSafeRomName(rom);
@@ -162,7 +175,7 @@ export async function initProject(positionals, flags) {
   }
 
   const author = String(flags.author || gitUserName() || "");
-  const lang = resolveDocsLang(flags.lang);
+  const lang = resolveDocsLang(flags.lang, configLang);
 
   const toolKey = toolArtifactKey();
   if (!toolKey) {
@@ -193,6 +206,7 @@ export async function initProject(positionals, flags) {
     ENTRY: entry,
     SPEC: spec,
     AUTHOR: author,
+    DOCS_LANG: lang,
     PROJECT: path.basename(target),
     DATE: new Date().toISOString().slice(0, 10),
   };

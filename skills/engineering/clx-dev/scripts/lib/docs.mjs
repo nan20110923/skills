@@ -2,6 +2,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { resolveDocsLang } from "./common.mjs";
 import { artifactPath, ensureArtifact } from "./download.mjs";
+import { projectDocsLang } from "./project.mjs";
 
 async function walkMarkdown(dir) {
   const out = [];
@@ -24,7 +25,7 @@ async function walkMarkdown(dir) {
 }
 
 export async function prepareDocs(flags) {
-  const lang = resolveDocsLang(flags.lang);
+  const lang = resolveDocsLang(flags.lang, await projectDocsLang());
   const dir = artifactPath(`docs:${lang}`);
   await ensureArtifact(`docs:${lang}`, {
     refresh: Boolean(flags.refresh),

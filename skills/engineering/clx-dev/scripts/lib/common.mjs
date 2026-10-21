@@ -227,10 +227,11 @@ export function normalizeDocsLang(value) {
   return null;
 }
 
-export function resolveDocsLang(flag) {
+export function resolveDocsLang(flag, hint) {
   return (
     normalizeDocsLang(flag) ||
     normalizeDocsLang(process.env.CLX_DOCS_LANG) ||
+    normalizeDocsLang(hint) ||
     normalizeDocsLang(process.env.LC_ALL) ||
     normalizeDocsLang(process.env.LC_MESSAGES) ||
     normalizeDocsLang(process.env.LANG) ||
