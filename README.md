@@ -36,16 +36,24 @@ for all options.
 ## Layout
 
 ```text
-skills/
-  <category>/<skill-name>/SKILL.md
-  <category>/<subcategory>/<skill-name>/SKILL.md   # at most two category levels
-templates/SKILL.md.template
-scripts/validate.mjs
+.
+├── skills/
+│   └── <category>/
+│       ├── <skill-name>/
+│       │   └── SKILL.md
+│       └── <subcategory>/
+│           └── <skill-name>/
+│               └── SKILL.md
+├── templates/
+│   └── SKILL.md.template
+└── scripts/
+    └── validate.mjs
 ```
 
-Categories exist to make skills easy to find, so they are created when the first
-skill in them lands. Suggested categories: `engineering/`, `design/`,
-`writing/`, `ops/`.
+The tree shows both supported layouts: `skills/<category>/<skill-name>/` and
+`skills/<category>/<subcategory>/<skill-name>/`. Categories exist to make skills
+easy to find, so they are created when the first skill in them lands. Suggested
+categories: `engineering/`, `design/`, `writing/`, `ops/`.
 
 ## Adding a skill
 
