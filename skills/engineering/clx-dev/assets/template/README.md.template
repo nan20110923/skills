@@ -23,9 +23,20 @@ dist/              generated ROMs (gitignored)
 Use the `clx-dev` skill commands from your coding agent:
 
 - `build` creates `dist/{{ROM}}.rom`.
+- `build --release` strips `dlog()` calls and builds from a temporary copy.
 - `run` starts the simulator and opens the debug channel on port 3563.
-- `debug` sends commands to the running cartridge.
+- `probe` runs a probe cartridge and waits for its `probe: done` marker.
+- `logs` prints the simulator log (use `--tail`, `--all`, or `--grep`).
+- `debug` sends commands; `debug --batch <file>` runs a file of commands.
 - `shot` captures the current frame and prints its pixel md5.
 - `stop` shuts the simulator down.
 
 The commands read `clx.config.json`; there is no need to pass the entry path.
+
+## Debug logging
+
+`src/main.lua` defines `DEBUG = false` and a `dlog()` wrapper around `printh()`.
+Set `DEBUG = true` while developing; `print()` draws on screen, while `printh()`
+writes to `.clx-dev/run.log`. Keep every `dlog()` call on one line so
+`build --release` can strip it. A release build fails if `DEBUG = true` and
+warns about direct `printh()` calls outside the wrapper.

@@ -60,6 +60,9 @@ const BOOLEAN_FLAGS = new Set([
   "help",
   "reuse",
   "foreground",
+  "release",
+  "all",
+  "keep",
 ]);
 
 export function cacheRoot() {

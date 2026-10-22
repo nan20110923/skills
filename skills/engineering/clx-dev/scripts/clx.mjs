@@ -11,6 +11,8 @@ import {
 import { buildProject, initProject } from "./lib/project.mjs";
 import {
   debugSession,
+  readSimulatorLog,
+  runProbe,
   runSimulator,
   simulatorStatus,
   stopSimulator,
@@ -21,7 +23,22 @@ import { readDocsIndex, searchDocs } from "./lib/docs.mjs";
 
 const VERSION = "0.1.0";
 
-const VALUE_FLAGS = ["rom", "spec", "author", "lang", "root", "out", "cmd", "vm", "expect"];
+const VALUE_FLAGS = [
+  "rom",
+  "spec",
+  "author",
+  "lang",
+  "root",
+  "out",
+  "cmd",
+  "vm",
+  "expect",
+  "tail",
+  "grep",
+  "until",
+  "timeout",
+  "batch",
+];
 
 const HELP = `clx-dev ${VERSION}
 
@@ -33,8 +50,10 @@ Commands:
   init [name]            Scaffold a coloX cartridge project
   build                  Build a .rom from the configured entry cartridge
   run                    Start the simulator in the background
+  probe                  Run a probe project, wait for its marker, then stop
   stop                   Stop the simulator started by "run"
   status                 Show simulator process and port status
+  logs                   Show the simulator log (default: last 80 lines)
   debug                  Send a command to the 3563 debug channel, or open a REPL
   shot                   Capture a screenshot and print its pixel md5
   docs [query]           Search the cached coloX documentation
@@ -56,9 +75,22 @@ init options:
 
 build options:
   --out <file>           Output ROM path (default: dist/<rom>.rom)
+  --release              Strip debug calls and build from a temporary copy
+
+probe options:
+  --until <text>         Marker to wait for (default: "probe: done")
+  --timeout <seconds>    Timeout (default: 20)
+  --tail <n>             Print only the last n log lines
+  --keep                 Leave the simulator running
+
+logs options:
+  --tail <n>             Lines to show (default: 80)
+  --all                  Show the whole log
+  --grep <pattern>       Only lines matching a case-insensitive regex
 
 debug options:
   --cmd <command>        Run one debug command and exit
+  --batch <file>         Commands from a project-relative file ("-" = stdin)
   --vm <index>           Select a VM before running the command
   --wait                 Wait up to 20s for the simulator to open the port
 
@@ -76,8 +108,12 @@ Examples:
   node scripts/clx.mjs init mygame
   node scripts/clx.mjs init --here --rom mygame
   node scripts/clx.mjs build
+  node scripts/clx.mjs build --release
   node scripts/clx.mjs run
+  node scripts/clx.mjs probe --root test/probe
+  node scripts/clx.mjs logs --grep ERROR
   node scripts/clx.mjs debug --cmd "vmlist"
+  node scripts/clx.mjs debug --batch test/debug.txt
   node scripts/clx.mjs shot --expect 5f2a...
   node scripts/clx.mjs stop
 `;
@@ -137,6 +173,11 @@ async function main() {
       const shown = relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : result.output;
       console.log(`built ${shown}`);
       console.log(`size  ${formatBytes(result.size)}`);
+      if (result.release) {
+        console.log(
+          `release stripped ${result.stripped} dlog call${result.stripped === 1 ? "" : "s"}`,
+        );
+      }
       return;
     }
 
@@ -147,6 +188,24 @@ async function main() {
       console.log(`log ${result.log}`);
       console.log(`entry ${result.project.entry}`);
       return;
+    }
+
+    case "probe": {
+      const result = await runProbe(flags);
+      for (const line of result.lines) console.log(line);
+      const elapsed = ((result.matchedMs ?? result.elapsedMs) / 1000).toFixed(1);
+      if (result.kept) console.log(`simulator kept pid ${result.pid}`);
+      if (result.matched) {
+        console.log(`probe matched ${JSON.stringify(result.until)} in ${elapsed}s`);
+        return;
+      }
+      if (result.dead) {
+        die(`probe simulator exited before ${JSON.stringify(result.until)}; log: ${result.log}`, 1);
+      }
+      die(
+        `probe timed out after ${result.timeoutSeconds}s waiting for ${JSON.stringify(result.until)}; log: ${result.log}`,
+        1,
+      );
     }
 
     case "stop": {
@@ -169,8 +228,27 @@ async function main() {
       return;
     }
 
+    case "logs": {
+      const result = await readSimulatorLog(flags);
+      if (result.lines.length === 0) {
+        const filter = flags.grep ? ` matching ${JSON.stringify(String(flags.grep))}` : "";
+        console.log(`no log lines in ${result.log}${filter}`);
+        return;
+      }
+      for (const line of result.lines) console.log(line);
+      return;
+    }
+
     case "debug": {
       const result = await debugSession(flags);
+      if (result.responses) {
+        for (const item of result.responses) {
+          if (!item.response) continue;
+          process.stdout.write(item.response);
+          if (!item.response.endsWith("\n")) process.stdout.write("\n");
+        }
+        return;
+      }
       if (result.response) {
         process.stdout.write(result.response);
         if (!result.response.endsWith("\n")) process.stdout.write("\n");

@@ -1,8 +1,8 @@
 # coloX debug protocol (port 3563)
 
-The simulator exposes a line-based text protocol on `127.0.0.1:3563`. It is a
-host-side developer channel, not a cartridge API. The desktop build enables it;
-retail firmware usually does not.
+The simulator exposes a line-based text protocol on TCP port 3563 of the
+loopback interface. It is a host-side developer channel, not a cartridge API.
+The desktop build enables it; retail firmware usually does not.
 
 Responses are framed:
 
@@ -128,4 +128,5 @@ input?
 ```
 
 `clx-dev` wraps this protocol: `debug --cmd "vmlist"` for one command,
-`debug` for a REPL, and `shot` for screenshot + md5 comparison.
+`debug --batch <file>` for a sequence (one command per line, `#` comments,
+`-` for stdin), `debug` for a REPL, and `shot` for screenshot + md5 comparison.

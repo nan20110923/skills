@@ -1,6 +1,6 @@
 ---
 name: clx-dev
-description: Scaffold, build, run, and debug coloX cartridges for ColoPLAY and ColoPLAY V2 hardware. Use when the user wants to create a coloX/.clx app, build a ROM for ColoPLAY, run or debug a cartridge, capture a frame, search the coloX API docs, or set up a new coloX development project.
+description: Scaffold, build, run, debug, test, and release coloX cartridges for ColoPLAY and ColoPLAY V2 hardware. Use when the user wants to create a coloX/.clx app, work with audio or networking, build a ROM, run or debug a cartridge, capture a frame, search the coloX API docs, or set up a new coloX development project.
 ---
 
 # coloX cartridge development
@@ -55,7 +55,7 @@ The scaffold creates:
 
 ```text
 <rom>.clx          cartridge header + #include src/main.lua
-src/main.lua       lifecycle callbacks and game code
+src/main.lua       lifecycle callbacks, DEBUG/dlog helper, game code
 assets/            images, audio, and data embedded with #blob / #png
 dist/              generated ROMs (gitignored)
 clx.config.json    rom, spec, entry, docs lang
@@ -74,6 +74,17 @@ cartridge header spec differs from the config. The official tool requires
 `-d <root>/` with a trailing slash and `-b` after `-r`; the wrapper handles both
 and removes the duplicate `<entry>.clx.rom` sidecar.
 
+`build --release` copies the project to a temporary directory, fails if any
+`DEBUG = true` assignment is found in the copied sources, strips single-line
+`dlog()` calls, and builds from the copy. The source tree is not modified. Add
+`--out <file>` to choose the release ROM path.
+
+## Debug logging
+
+Use a top-level `DEBUG` constant and a `dlog()` wrapper around `printh()`; keep
+each call on one line so `build --release` can strip it. `print` draws on
+screen, `printh` writes to the host log. See `references/release.md`.
+
 ## Run and debug
 
 - `run` starts the simulator detached, waits for port 3563, and writes
@@ -81,9 +92,16 @@ and removes the duplicate `<entry>.clx.rom` sidecar.
 - Only one simulator can own port 3563. `run` fails if another process has it.
 - `debug --cmd "vmlist"` runs one command; `debug` opens a REPL when stdin is
   a TTY.
+- `debug --batch <file>` sends one command per line over one connection. The
+  path is relative to the project root; `-` reads stdin.
+- `probe` starts a probe project, waits for `probe: done` (or `--until <text>`),
+  stops it, and prints the log. Use `--timeout`, `--tail`, and `--keep` to
+  control a slow probe or inspect a finished one.
 - Use `--vm <index>` after `vmlist` when the BIOS menu VM owns the channel.
 - `shot` captures the current frame and prints the pixel md5. Compare it with
   `--expect <md5>` for a golden-image check.
+- `logs` prints the simulator log (last 80 lines). Use `--tail <n>`, `--all`,
+  or `--grep <regex>` (case-insensitive) to narrow it.
 - `stop` terminates the simulator; `status` reports PID and port state.
 
 Examples:
@@ -91,13 +109,20 @@ Examples:
 ```bash
 node <skill-dir>/scripts/clx.mjs debug --cmd "input?"
 node <skill-dir>/scripts/clx.mjs debug --cmd "btn LEFT 30"
+node <skill-dir>/scripts/clx.mjs debug --batch test/debug.txt
 node <skill-dir>/scripts/clx.mjs debug --cmd "shot /tmp/frame.bmp"
+node <skill-dir>/scripts/clx.mjs probe --root test/probe
 node <skill-dir>/scripts/clx.mjs shot --expect <md5>
+node <skill-dir>/scripts/clx.mjs logs --grep "ERROR|warning"
 node <skill-dir>/scripts/clx.mjs stop
 ```
 
 Debug commands are frame-boundary processed. Input injection is frame-accurate.
 See `references/debug-protocol.md` for the full command list.
+
+Long debugger commands and audio init/reset (`wave('I')`, `wave('R')`) while
+paused can crash the simulator. Keep commands short and move heavy tests into a
+probe cartridge; see `references/simulator-debugging.md`.
 
 ## Documentation
 
@@ -116,6 +141,28 @@ Chinese, even if the machine locale is English.
 common graphics/input/audio functions, and spec limits. Read it before writing
 game code, then use `docs <query>` for the full official text.
 
+- `references/audio.md`: `wave`/`micpoll`, codecs, Opus framing, embedded audio,
+  and streaming.
+- `references/network.md`: sockets, local discovery, binary protocols, and
+  host-side test peers.
+- `references/simulator-debugging.md`: safe debugger use, probe cartridges,
+  logs, and golden screenshots.
+- `references/release.md`: debug stripping, overlays, versioning, and the
+  release checklist.
+
+## Quality gate
+
+Before calling a cartridge done:
+
+- Build without warnings; run it and confirm it boots.
+- Exercise the main path and at least one fallback (missing module or
+  permission, no peer, old data, release build).
+- Run `logs --grep ERROR` and check `.clx-dev/run.log` for unexpected output.
+  `printh` writes there; `print` draws on screen.
+- Capture key screens with `shot`; use `shot --expect` for golden checks.
+- Run `build --release`, leave `statctl('dfps')` off, and bump format/protocol
+  versions when layouts change.
+
 ## Troubleshooting
 
 - `doctor` reports a missing tool or examples: run `doctor --refresh`.
@@ -127,6 +174,12 @@ game code, then use `docs <query>` for the full official text.
   `--lang zh` or `--lang en`; each language is a separate bundle, cached on
   first use.
 - macOS on Apple Silicon needs Rosetta for the Intel build; `doctor` checks it.
+- `build --release` fails with `DEBUG = true`: set `DEBUG = false` in the source;
+  the release build strips a copy, not the original.
+- `build --release` warns about direct `printh()`: move the call into `dlog()`
+  or remove it before shipping.
+- `probe` times out: make sure the marker uses `printh` and the code path runs;
+  raise `--timeout`, or rerun with `--keep` and inspect with `logs`.
 - `port 3563 is already in use`: run `stop`, or close the other simulator.
 - `-d` issues: never call `coloXtool` directly; the wrapper always appends the
   trailing slash.

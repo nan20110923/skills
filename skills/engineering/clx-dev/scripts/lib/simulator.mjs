@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
-import { rename, rm, stat } from "node:fs/promises";
+import { readFile, rename, rm, stat } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
@@ -29,6 +29,12 @@ function stateDir(root) {
 
 function stateFile(root) {
   return path.join(stateDir(root), "run.json");
+}
+
+function splitLogLines(text) {
+  const lines = text.split(/\r?\n/);
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines;
 }
 
 async function connect() {
@@ -232,13 +238,153 @@ export async function simulatorStatus(flags) {
   };
 }
 
+export async function readSimulatorLog(flags = {}) {
+  const root = await resolveProjectRoot(flags);
+  const state = await readJson(stateFile(root), null);
+  const log = state?.log ? path.resolve(root, state.log) : path.join(stateDir(root), "run.log");
+
+  let text;
+  try {
+    text = await readFile(log, "utf8");
+  } catch {
+    throw new Error(`no simulator log at ${log}; run the simulator first`);
+  }
+
+  let lines = splitLogLines(text);
+
+  if (flags.grep) {
+    let pattern;
+    try {
+      pattern = new RegExp(String(flags.grep), "i");
+    } catch (err) {
+      throw new Error(`invalid --grep pattern: ${err.message}`);
+    }
+    lines = lines.filter((line) => pattern.test(line));
+  }
+
+  if (!flags.all) {
+    const tail = flags.tail === undefined ? 80 : Number(flags.tail);
+    if (!Number.isInteger(tail) || tail < 1) {
+      throw new Error("--tail must be a positive integer");
+    }
+    lines = lines.slice(-tail);
+  }
+
+  return { root, log, lines };
+}
+
+export async function runProbe(flags = {}) {
+  const until = flags.until === undefined ? "probe: done" : String(flags.until);
+  const timeoutSeconds = flags.timeout === undefined ? 20 : Number(flags.timeout);
+  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+    throw new Error("--timeout must be a positive number of seconds");
+  }
+  const tail = flags.tail === undefined ? null : Number(flags.tail);
+  if (tail !== null && (!Number.isInteger(tail) || tail < 1)) {
+    throw new Error("--tail must be a positive integer");
+  }
+  const keep = Boolean(flags.keep);
+
+  const started = await runSimulator(flags);
+  const root = started.project.root;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutSeconds * 1000;
+  let matched = false;
+  let matchedAt = null;
+  let dead = false;
+
+  try {
+    while (Date.now() < deadline) {
+      const text = await readFile(started.log, "utf8").catch(() => "");
+      if (!until || text.includes(until)) {
+        matched = true;
+        matchedAt = Date.now();
+        break;
+      }
+      if (!isAlive(started.pid)) {
+        dead = true;
+        break;
+      }
+      await sleep(150);
+    }
+    if (matched) await sleep(200);
+  } finally {
+    if (!keep) await stopSimulator({ root });
+  }
+
+  const text = await readFile(started.log, "utf8").catch(() => "");
+  let lines = splitLogLines(text);
+  if (tail !== null) lines = lines.slice(-tail);
+
+  return {
+    root,
+    log: started.log,
+    pid: started.pid,
+    until,
+    timeoutSeconds,
+    matched,
+    dead,
+    timedOut: !matched && !dead,
+    kept: keep,
+    elapsedMs: Date.now() - startedAt,
+    matchedMs: matchedAt === null ? null : matchedAt - startedAt,
+    lines,
+  };
+}
+
+async function readBatchCommands(source, root) {
+  let text;
+  if (source === "-") {
+    process.stdin.setEncoding("utf8");
+    text = "";
+    for await (const chunk of process.stdin) text += chunk;
+  } else {
+    const file = path.isAbsolute(source) ? source : path.resolve(root, source);
+    try {
+      text = await readFile(file, "utf8");
+    } catch (err) {
+      throw new Error(`cannot read batch file ${file}: ${err.message}`);
+    }
+  }
+
+  const commands = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+  if (commands.length === 0) {
+    throw new Error(`no debug commands in ${source === "-" ? "stdin" : source}`);
+  }
+  return commands;
+}
+
 export async function debugSession(flags) {
   const root = await resolveProjectRoot(flags);
   const wait = Boolean(flags.wait);
+  const command = flags.cmd ? String(flags.cmd) : null;
+  const batch = flags.batch ? String(flags.batch) : null;
+  if (command && batch) throw new Error("use either --cmd or --batch, not both");
+  const batchCommands = batch ? await readBatchCommands(batch, root) : null;
+
   await ensureRunning({ wait });
 
-  const command = flags.cmd ? String(flags.cmd) : null;
   const vm = flags.vm ? String(flags.vm) : null;
+
+  if (batch) {
+    return withConnection(async (socket) => {
+      if (vm) await sendAndRead(socket, `vm ${vm}`);
+      const responses = [];
+      for (const item of batchCommands) {
+        if (item === "exit" || item === "quit") break;
+        try {
+          const response = await sendAndRead(socket, item);
+          responses.push({ command: item, response });
+        } catch (err) {
+          throw new Error(`batch command ${responses.length + 1} failed (${item}): ${err.message}`);
+        }
+      }
+      return { responses, command: null };
+    });
+  }
 
   if (command) {
     return withConnection(async (socket) => {
@@ -249,7 +395,9 @@ export async function debugSession(flags) {
   }
 
   if (!process.stdin.isTTY) {
-    throw new Error("no --cmd given and stdin is not a TTY; pass --cmd for non-interactive use");
+    throw new Error(
+      "no --cmd or --batch given and stdin is not a TTY; pass --cmd or --batch for non-interactive use",
+    );
   }
 
   const socket = await connect();

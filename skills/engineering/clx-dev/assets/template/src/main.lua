@@ -1,9 +1,21 @@
 -- Entry module for a coloX cartridge.
 -- Loaded from the cartridge through "#include src/main.lua".
 
+-- Debug output goes to the host log, not the screen. Set DEBUG to true while
+-- developing. `build --release` expects false and strips single-line dlog()
+-- calls from a temporary copy of the project.
+DEBUG = false
+
+function dlog(fmt, ...)
+  if not DEBUG then return end
+  local ok, s = pcall(string.format, fmt, ...)
+  printh(ok and s or tostring(fmt))
+end
+
 function _init()
   x = __vm_width / 2
   y = __vm_height / 2
+  dlog("init: %dx%d", __vm_width, __vm_height)
 end
 
 function _update()

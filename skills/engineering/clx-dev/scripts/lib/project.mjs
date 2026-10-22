@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -254,6 +255,164 @@ export async function initProject(positionals, flags) {
   };
 }
 
+const RELEASE_SKIP = new Set([
+  ".git",
+  ".clx-dev",
+  "dist",
+  "node_modules",
+  "test",
+  "tests",
+  "spec",
+  "specs",
+]);
+
+function hasReleaseSkipComponent(relativePath) {
+  return relativePath.split(path.sep).some((component) => RELEASE_SKIP.has(component));
+}
+
+async function listLuaFiles(dir) {
+  const files = [];
+  const queue = [dir];
+  while (queue.length > 0) {
+    const current = queue.pop();
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (!hasReleaseSkipComponent(path.relative(dir, full))) queue.push(full);
+      } else if (entry.isFile() && entry.name.endsWith(".lua")) {
+        files.push(full);
+      }
+    }
+  }
+  return files.sort();
+}
+
+function stripReleaseSource(text, rel) {
+  const lines = text.split(/\r?\n/);
+  const kept = [];
+  let stripped = 0;
+  let debugFalse = false;
+  let inDlog = false;
+  const directPrinth = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const debug = line.match(/^\s*DEBUG\s*=\s*(true|false)\b/);
+    if (debug) {
+      if (debug[1] === "true") {
+        throw new Error(`release build: DEBUG = true in ${rel}:${i + 1}; set it to false`);
+      }
+      debugFalse = true;
+    }
+
+    if (/^\s*dlog\s*\(/.test(line)) {
+      stripped += 1;
+      continue;
+    }
+
+    if (
+      /^\s*(?:local\s+)?function\s+dlog\s*\(/.test(line) ||
+      /^\s*dlog\s*=\s*function\s*\(/.test(line)
+    ) {
+      inDlog = true;
+    }
+
+    const trimmed = line.trimStart();
+    if (!trimmed.startsWith("--") && /\bprinth\s*\(/.test(line) && !inDlog) {
+      directPrinth.push(`${rel}:${i + 1}`);
+    }
+
+    kept.push(line);
+    if (inDlog && /^\s*end\s*$/.test(line)) inDlog = false;
+  }
+
+  return { text: kept.join("\n"), stripped, debugFalse, directPrinth };
+}
+
+async function runBuild(root, project, output, executable) {
+  const workspace = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+  const result = spawnSync(
+    executable,
+    ["-d", workspace, "-r", project.entry, "-b", output],
+    { cwd: root, encoding: "utf8", timeout: 120000 },
+  );
+
+  if (result.error) throw new Error(`failed to run coloXtool: ${result.error.message}`);
+  if (result.status !== 0) {
+    const detail = `${result.stdout || ""}\n${result.stderr || ""}`.trim().split(/\r?\n/).slice(-12).join("\n");
+    throw new Error(`coloXtool exited with code ${result.status}\n${detail}`);
+  }
+
+  if (!(await pathExists(output))) throw new Error(`build finished but ${output} was not created`);
+  const sidecar = path.join(root, `${project.entry}.rom`);
+  if (path.resolve(sidecar) !== path.resolve(output)) await rm(sidecar, { force: true });
+
+  const { size } = await stat(output);
+  return size;
+}
+
+// Build from a temporary copy so release stripping never edits the source tree.
+async function buildRelease(root, project, output, executable) {
+  const temp = await mkdtemp(path.join(tmpdir(), "clx-release-"));
+  try {
+    await cp(root, temp, {
+      recursive: true,
+      filter: (src) => {
+        const rel = path.relative(root, src);
+        if (!rel) return true;
+        return !hasReleaseSkipComponent(rel);
+      },
+    });
+
+    const luaFiles = await listLuaFiles(temp);
+    const entryFile = path.join(temp, project.entry);
+    if (
+      (await pathExists(entryFile)) &&
+      !luaFiles.some((file) => path.resolve(file) === path.resolve(entryFile))
+    ) {
+      luaFiles.push(entryFile);
+    }
+
+    let stripped = 0;
+    let debugFalse = false;
+    const directPrinth = [];
+
+    for (const file of luaFiles) {
+      const rel = path.relative(temp, file).split(path.sep).join("/");
+      const result = stripReleaseSource(await readFile(file, "utf8"), rel);
+      stripped += result.stripped;
+      debugFalse = debugFalse || result.debugFalse;
+      directPrinth.push(...result.directPrinth);
+      await writeFile(file, result.text, "utf8");
+    }
+
+    if (stripped > 0 && !debugFalse) {
+      warn("release build: found dlog() calls but no `DEBUG = false`; set DEBUG explicitly");
+    }
+    if (directPrinth.length > 0) {
+      const shown = directPrinth.slice(0, 5).join(", ");
+      const more = directPrinth.length > 5 ? ` (+${directPrinth.length - 5} more)` : "";
+      warn(`release build: direct printh() outside dlog(): ${shown}${more}`);
+    }
+
+    const tempProject = await loadProject(temp);
+    const size = await runBuild(temp, tempProject, output, executable);
+    const originalSidecar = path.join(root, `${project.entry}.rom`);
+    if (path.resolve(originalSidecar) !== path.resolve(output)) {
+      await rm(originalSidecar, { force: true });
+    }
+    return { size, stripped };
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+}
+
 export async function buildProject(flags) {
   const root = await resolveProjectRoot(flags);
   const project = await loadProject(root);
@@ -275,23 +434,11 @@ export async function buildProject(flags) {
     : path.join(root, "dist", `${project.rom}.rom`);
   await ensureDir(path.dirname(output));
 
-  const workspace = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
-  const result = spawnSync(
-    executable,
-    ["-d", workspace, "-r", project.entry, "-b", output],
-    { cwd: root, encoding: "utf8", timeout: 120000 },
-  );
-
-  if (result.error) throw new Error(`failed to run coloXtool: ${result.error.message}`);
-  if (result.status !== 0) {
-    const detail = `${result.stdout || ""}\n${result.stderr || ""}`.trim().split(/\r?\n/).slice(-12).join("\n");
-    throw new Error(`coloXtool exited with code ${result.status}\n${detail}`);
+  if (flags.release) {
+    const result = await buildRelease(root, project, output, executable);
+    return { output, size: result.size, project, release: true, stripped: result.stripped };
   }
 
-  if (!(await pathExists(output))) throw new Error(`build finished but ${output} was not created`);
-  const sidecar = path.join(root, `${project.entry}.rom`);
-  if (path.resolve(sidecar) !== path.resolve(output)) await rm(sidecar, { force: true });
-
-  const { size } = await stat(output);
-  return { output, size, project };
+  const size = await runBuild(root, project, output, executable);
+  return { output, size, project, release: false, stripped: 0 };
 }
