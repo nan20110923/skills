@@ -61,6 +61,11 @@ btn                        # query current state
 A bare number is frames; a number with `ms` is milliseconds; omitting the
 duration holds until `btn 0`.
 
+On button/knob ColoPLAY hardware, the simulator keys map to the physical corners
+as `X=TL`, `Y=TR`, `A=BL`, and `B=BR`; `CENTER`, `LEFT`, and `RIGHT` map to the
+knob press and detents. See `hardware.md` for the full physical/API table and
+revision caveats.
+
 ```text
 btn LEFT A 30
 btn LEFT 500ms

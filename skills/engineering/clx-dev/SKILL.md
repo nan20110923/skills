@@ -64,8 +64,12 @@ README.md
 ```
 
 The default spec is `coloX-16` (ColoPLAY, 240×240). Use
-`--spec coloX-16C` for ColoPLAY V2 (480×480, touch, no buttons). Do not add a
-`.vscode/` directory: the user may not use VS Code.
+`--spec coloX-16C` for ColoPLAY V2 (480×480, touch, no buttons). Physical
+button/knob mappings and physical lamp availability differ between ColoPLAY
+revisions (the visible lamps include both corner-button lighting and the knob
+ring); read `references/hardware.md` before using corner buttons, the knob, or
+`templed`/`led`. Do not add a `.vscode/` directory: the user may not use
+VS Code.
 
 ## Build
 
@@ -143,6 +147,9 @@ game code, then use `docs <query>` for the full official text.
 
 - `references/audio.md`: `wave`/`micpoll`, codecs, Opus framing, embedded audio,
   and streaming.
+- `references/hardware.md`: physical ColoPLAY button/knob mapping, hardware
+  revision differences, the combined corner-button/knob-ring lamp subsystem,
+  safe `templed` lighting, and device bring-up checks.
 - `references/network.md`: sockets, local discovery, binary protocols, and
   host-side test peers.
 - `references/simulator-debugging.md`: safe debugger use, probe cartridges,

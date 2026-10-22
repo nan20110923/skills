@@ -16,6 +16,12 @@ Common specs: `coloX-4P` (128×128, 4bpp), `coloX-4` / `coloX-16` (240×240),
 `coloX-16W` (800×480). Custom: `X-<width>x<height>_<bpp>`.
 A cartridge cannot exceed its spec's ROM limit; `coloX-16` is about 184 KB.
 
+Button/knob ColoPLAY revisions share the physical `btn()` layout, but physical
+lamp population differs (the known S31 unit has no lamps), and `$sys.model`
+does not identify the revision. The lamp service controls the combined
+corner-button/knob-ring assembly globally. See `hardware.md` before using
+corner controls, knob rotation, or `svcreq("ex", "templed:...")`.
+
 ## File format
 
 A `.clx` file is plain text:
